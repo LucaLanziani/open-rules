@@ -1,6 +1,6 @@
 {
     "name": "open-rules",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Consolidate agent rules into .open-rules and sync to Copilot/Cursor/Claude formats.",
     "type": "commonjs",
     "bin": {
