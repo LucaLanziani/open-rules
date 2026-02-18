@@ -1,0 +1,77 @@
+# AI Rules Consolidator
+
+Centralize AI-agent instructions in a single source folder (`.open-rules`) and generate compatible files for tools such as Copilot, Cursor, and Claude Code.
+
+## Why
+
+Instead of duplicating instructions in multiple formats, keep them in one place and sync adapters.
+
+## Quick start
+
+```bash
+npm install
+npm run init
+npm run sync
+```
+
+This creates:
+
+- `.open-rules/config.json` (source + targets config)
+- `.open-rules/*.md` rule files (source of truth)
+- `.github/copilot-instructions.md`
+- `.cursor/rules/open-rules.mdc`
+- `CLAUDE.md`
+
+## CLI
+
+```bash
+open-rules init
+open-rules add security-basics
+open-rules sync
+open-rules sync --dry-run
+```
+
+## Config
+
+Default config in `.open-rules/config.json`:
+
+```json
+{
+  "rulesDir": ".open-rules",
+  "includeExtensions": [".md", ".txt", ".mdc"],
+  "excludeFiles": ["README.md", "config.json"],
+  "targets": {
+    "copilot": {
+      "enabled": true,
+      "path": ".github/copilot-instructions.md",
+      "applyTo": "**/*",
+      "sourceMode": "reference"
+    },
+    "cursor": {
+      "enabled": true,
+      "path": ".cursor/rules/open-rules.mdc",
+      "applyTo": "**/*",
+      "sourceMode": "reference"
+    },
+    "claude": {
+      "enabled": true,
+      "path": "CLAUDE.md",
+      "sourceMode": "reference"
+    }
+  }
+}
+```
+
+You can add more targets by adding entries under `targets`.
+For Copilot, set `targets.copilot.applyTo` to include frontmatter in generated output.
+For Cursor, set `targets.cursor.applyTo` to a glob (or array of globs) to control where the rule applies.
+Set `sourceMode` to `embed` (default) or `reference` per target:
+
+- `embed`: copy merged `.open-rules` content into generated file
+- `reference`: generated file only points to `.open-rules` files as source of truth
+
+## Typical workflow
+
+1. Add/edit files in `.open-rules/`
+2. Run `open-rules sync`
+3. Commit both source rules and generated adapters

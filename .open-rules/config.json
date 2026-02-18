@@ -1,0 +1,31 @@
+{
+  "rulesDir": ".open-rules",
+  "includeExtensions": [
+    ".md",
+    ".txt",
+    ".mdc"
+  ],
+  "excludeFiles": [
+    "README.md",
+    "config.json"
+  ],
+  "targets": {
+    "copilot": {
+      "enabled": true,
+      "path": ".github/copilot-instructions.md",
+      "applyTo": "**/*",
+      "sourceMode": "reference"
+    },
+    "cursor": {
+      "enabled": true,
+      "path": ".cursor/rules/open-rules.mdc",
+      "applyTo": "**/*",
+      "sourceMode": "reference"
+    },
+    "claude": {
+      "enabled": true,
+      "path": "CLAUDE.md",
+      "sourceMode": "reference"
+    }
+  }
+}

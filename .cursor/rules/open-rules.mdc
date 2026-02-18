@@ -1,0 +1,15 @@
+---
+description: Open Rules (generated)
+alwaysApply: true
+applyTo: '**/*'
+---
+
+## Open Rules Source
+
+Rules are stored in `.open-rules`. Read those files directly and treat them as the source of truth.
+Do not rely on copied content in this file.
+
+### Rule files
+
+- `.open-rules/00-core.md`
+
