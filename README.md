@@ -27,9 +27,23 @@ This creates:
 ```bash
 open-rules init
 open-rules add security-basics
+open-rules import all --force --sync
 open-rules sync
 open-rules sync --dry-run
 ```
+
+Import sources from existing tool files into `.open-rules`:
+
+```bash
+open-rules import
+open-rules import copilot cursor
+open-rules import claude --force
+open-rules import all --sync
+```
+
+- default sources: `all` (`copilot`, `cursor`, `claude`)
+- `--force`: overwrite existing imported files (`90-import-<source>.md`)
+- `--sync`: run `sync` immediately after import
 
 ## Config
 
@@ -75,3 +89,12 @@ Set `sourceMode` to `embed` (default) or `reference` per target:
 1. Add/edit files in `.open-rules/`
 2. Run `open-rules sync`
 3. Commit both source rules and generated adapters
+
+## Adding a new target
+
+Target renderers are split by file under `src/targets/`:
+
+- `src/targets/<target>.js`: render logic for one target
+- `src/targets/index.js`: target registry map
+
+To add a target, create a renderer file and register it in `src/targets/index.js`.

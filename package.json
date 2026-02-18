@@ -1,10 +1,10 @@
 {
-    "name": "ai-rules-consolidator",
+    "name": "open-rules",
     "version": "0.1.0",
     "description": "Consolidate agent rules into .open-rules and sync to Copilot/Cursor/Claude formats.",
     "type": "commonjs",
     "bin": {
-        "open-rules": "./bin/open-rules.js"
+        "open-rules": "bin/open-rules.js"
     },
     "scripts": {
         "sync": "node ./bin/open-rules.js sync",
