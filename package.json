@@ -9,7 +9,8 @@
     "scripts": {
         "sync": "node ./bin/open-rules.js sync",
         "init": "node ./bin/open-rules.js init",
-        "check": "node ./bin/open-rules.js sync --dry-run"
+        "check": "node ./bin/open-rules.js sync --dry-run",
+        "clean:ignored": "git clean -Xdf"
     },
     "keywords": [
         "ai",

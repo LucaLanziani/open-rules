@@ -84,6 +84,36 @@ Set `sourceMode` to `embed` (default) or `reference` per target:
 - `embed`: copy merged `.open-rules` content into generated file
 - `reference`: generated file only points to `.open-rules` files as source of truth
 
+## Scoped rules per file/folder
+
+You can scope individual rule files using frontmatter in the rule itself.
+
+Example `.open-rules/20-backend.md`:
+
+```md
+---
+applyTo:
+  - "src/api/**"
+  - "src/services/**"
+targets: [copilot, cursor]
+---
+
+# Backend rules
+
+- Prefer pure domain services.
+- Keep HTTP handlers thin.
+```
+
+- `applyTo`: optional string or list of globs for that specific rule file
+- `targets`: optional target filter (`copilot`, `cursor`, `claude`, etc.)
+
+Behavior:
+
+- Global rules (no `applyTo`) stay in main generated target files.
+- Scoped Copilot rules generate per-rule files under `.github/instructions/`.
+- Scoped Cursor rules generate per-rule files under `.cursor/rules/`.
+- Scoped files are generated with the `open-rules-` prefix and cleaned up on sync.
+
 ## Typical workflow
 
 1. Add/edit files in `.open-rules/`
