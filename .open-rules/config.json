@@ -9,6 +9,7 @@
     "README.md",
     "config.json"
   ],
+  "rules": {},
   "targets": {
     "copilot": {
       "enabled": true,
