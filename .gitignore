@@ -1,7 +1,4 @@
 node_modules/
 .DS_Store
 
-# Only track 00-core.md in .open-rules
-.open-rules/*
-!.open-rules/00-core.md
-!.open-rules/.gitkeep
+
