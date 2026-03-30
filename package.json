@@ -10,6 +10,7 @@
         "sync": "node ./bin/open-rules.js sync",
         "init": "node ./bin/open-rules.js init",
         "check": "node ./bin/open-rules.js sync --dry-run",
+        "test": "node --test test/**/*.test.js",
         "clean:ignored": "git clean -Xdf"
     },
     "keywords": [

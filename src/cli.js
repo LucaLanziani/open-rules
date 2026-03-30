@@ -672,8 +672,8 @@ function stripLeadingFrontmatter(content) {
 function looksLikeGeneratedOpenRules(content) {
     return content.includes('## Open Rules Source')
         && (
-            content.includes('Generated from `.open-rules` files. Do not edit this section manually.')
-            || content.includes('Rules are stored in `.open-rules`. Read those files directly and treat them as the source of truth.')
+            content.includes('Do not edit this section manually.')
+            || content.includes('Read those files directly and treat them as the source of truth.')
         );
 }
 
@@ -718,5 +718,7 @@ function removeFlagWithValue(args, flag) {
 }
 
 module.exports = {
-    main
+    main,
+    parseFlagValue,
+    removeFlagWithValue
 };
