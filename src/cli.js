@@ -241,13 +241,11 @@ function syncRules(rootDir, options = {}) {
         .map((filePath) => ({
             absPath: filePath,
             relPath: path.relative(rulesDir, filePath).replaceAll('\\\\', '/'),
-            content: fs.readFileSync(filePath, 'utf8').trim()
+            ...parseRuleFile(fs.readFileSync(filePath, 'utf8'))
         }))
         .filter((item) => item.content.length > 0)
         .sort((a, b) => a.relPath.localeCompare(b.relPath));
 
-    const merged = buildMergedRules(config.rulesDir, files);
-    const referenced = buildReferencedRules(config.rulesDir, files);
     const targets = normalizeTargets(config.targets);
 
     if (targets.length === 0) {
@@ -256,6 +254,14 @@ function syncRules(rootDir, options = {}) {
     }
 
     for (const target of targets) {
+        const targetRules = files.filter((ruleFile) => isRuleEnabledForTarget(ruleFile, target.name));
+        const supportsScopedRules = target.name === 'copilot' || target.name === 'cursor';
+        const globalRules = supportsScopedRules
+            ? targetRules.filter((ruleFile) => ruleFile.applyTo.length === 0)
+            : targetRules;
+
+        const merged = buildMergedRules(config.rulesDir, globalRules);
+        const referenced = buildReferencedRules(config.rulesDir, globalRules);
         const output = renderTargetContent(target, {
             mergedRules: merged,
             referencedRules: referenced
@@ -270,6 +276,17 @@ function syncRules(rootDir, options = {}) {
         ensureDir(path.dirname(outPath));
         fs.writeFileSync(outPath, output, 'utf8');
         console.log(`Wrote ${relativeToRoot(rootDir, outPath)}`);
+
+        if (supportsScopedRules) {
+            const scopedRules = targetRules.filter((ruleFile) => ruleFile.applyTo.length > 0);
+            syncScopedTargetFiles({
+                rootDir,
+                rulesDirName: config.rulesDir,
+                target,
+                scopedRules,
+                dryRun
+            });
+        }
     }
 }
 
@@ -373,6 +390,222 @@ function buildReferencedRules(rulesDirName, files) {
     lines.push('');
 
     return lines.join('\n');
+}
+
+function parseRuleFile(rawContent) {
+    const { frontmatter, body } = splitFrontmatter(rawContent);
+    const metadata = parseFrontmatterMetadata(frontmatter);
+
+    return {
+        content: body.trim(),
+        applyTo: normalizeStringList(metadata.applyTo),
+        targets: normalizeStringList(metadata.targets)
+    };
+}
+
+function splitFrontmatter(content) {
+    if (!content.startsWith('---')) {
+        return {
+            frontmatter: '',
+            body: content
+        };
+    }
+
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (!match) {
+        return {
+            frontmatter: '',
+            body: content
+        };
+    }
+
+    return {
+        frontmatter: match[1],
+        body: content.slice(match[0].length)
+    };
+}
+
+function parseFrontmatterMetadata(frontmatter) {
+    if (typeof frontmatter !== 'string' || frontmatter.trim().length === 0) {
+        return {};
+    }
+
+    const result = {};
+    const lines = frontmatter.split(/\r?\n/);
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const rawLine = lines[index];
+        if (/^\s*#/.test(rawLine) || rawLine.trim().length === 0) {
+            continue;
+        }
+
+        const match = rawLine.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
+        if (!match) {
+            continue;
+        }
+
+        const key = match[1];
+        const inlineValue = match[2].trim();
+
+        if (inlineValue.length === 0) {
+            const listValues = [];
+            let pointer = index + 1;
+            while (pointer < lines.length) {
+                const listMatch = lines[pointer].match(/^\s*-\s*(.*)$/);
+                if (!listMatch) {
+                    break;
+                }
+
+                listValues.push(parseYamlScalar(listMatch[1]));
+                pointer += 1;
+            }
+
+            if (listValues.length > 0) {
+                result[key] = listValues;
+                index = pointer - 1;
+            }
+            continue;
+        }
+
+        if (inlineValue.startsWith('[') && inlineValue.endsWith(']')) {
+            const inner = inlineValue.slice(1, -1).trim();
+            result[key] = inner.length === 0
+                ? []
+                : inner.split(',').map((token) => parseYamlScalar(token.trim()));
+            continue;
+        }
+
+        result[key] = parseYamlScalar(inlineValue);
+    }
+
+    return result;
+}
+
+function parseYamlScalar(value) {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        const quote = trimmed.charAt(0);
+        const inner = trimmed.slice(1, -1);
+        return quote === "'" ? inner.replaceAll("''", "'") : inner;
+    }
+
+    return trimmed;
+}
+
+function normalizeStringList(input) {
+    if (typeof input === 'string' && input.trim().length > 0) {
+        return [input.trim()];
+    }
+
+    if (Array.isArray(input)) {
+        return input
+            .filter((value) => typeof value === 'string' && value.trim().length > 0)
+            .map((value) => value.trim());
+    }
+
+    return [];
+}
+
+function isRuleEnabledForTarget(ruleFile, targetName) {
+    if (!Array.isArray(ruleFile.targets) || ruleFile.targets.length === 0) {
+        return true;
+    }
+
+    return ruleFile.targets.some((target) => target.toLowerCase() === targetName.toLowerCase());
+}
+
+function syncScopedTargetFiles({ rootDir, rulesDirName, target, scopedRules, dryRun }) {
+    const scopedMeta = resolveScopedOutputMeta(target);
+    if (!scopedMeta) {
+        return;
+    }
+
+    const outDir = path.join(rootDir, scopedMeta.directory);
+    const writtenFiles = new Set();
+    const usedNames = new Set();
+
+    for (const ruleFile of scopedRules) {
+        const scopedName = buildScopedRuleFileName(ruleFile.relPath, scopedMeta.extension, usedNames);
+        const relOutPath = path.join(scopedMeta.directory, scopedName);
+        const absOutPath = path.join(rootDir, relOutPath);
+        const scopedTarget = {
+            ...target,
+            applyTo: ruleFile.applyTo
+        };
+
+        const output = renderTargetContent(scopedTarget, {
+            mergedRules: buildMergedRules(rulesDirName, [ruleFile]),
+            referencedRules: buildReferencedRules(rulesDirName, [ruleFile])
+        });
+
+        if (dryRun) {
+            console.log(`[dry-run] Would write ${relativeToRoot(rootDir, absOutPath)} (${output.length} chars)`);
+        } else {
+            ensureDir(path.dirname(absOutPath));
+            fs.writeFileSync(absOutPath, output, 'utf8');
+            console.log(`Wrote ${relativeToRoot(rootDir, absOutPath)}`);
+        }
+
+        writtenFiles.add(path.resolve(absOutPath));
+    }
+
+    if (!fs.existsSync(outDir)) {
+        return;
+    }
+
+    const generatedFiles = fs.readdirSync(outDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => path.join(outDir, entry.name))
+        .filter((filePath) => path.basename(filePath).startsWith('open-rules-'))
+        .filter((filePath) => path.basename(filePath).endsWith(scopedMeta.extension));
+
+    for (const generatedFile of generatedFiles) {
+        if (writtenFiles.has(path.resolve(generatedFile))) {
+            continue;
+        }
+
+        if (dryRun) {
+            console.log(`[dry-run] Would remove ${relativeToRoot(rootDir, generatedFile)}`);
+        } else {
+            fs.unlinkSync(generatedFile);
+            console.log(`Removed ${relativeToRoot(rootDir, generatedFile)}`);
+        }
+    }
+}
+
+function resolveScopedOutputMeta(target) {
+    const targetPathDir = path.dirname(target.path);
+
+    if (target.name === 'copilot') {
+        return {
+            directory: path.join(targetPathDir, 'instructions'),
+            extension: '.instructions.md'
+        };
+    }
+
+    if (target.name === 'cursor') {
+        return {
+            directory: targetPathDir,
+            extension: '.mdc'
+        };
+    }
+
+    return null;
+}
+
+function buildScopedRuleFileName(relPath, extension, usedNames) {
+    const noExt = relPath.replace(/\.[^.]+$/, '');
+    const baseSlug = `open-rules-${noExt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'rule'}`;
+    let candidate = `${baseSlug}${extension}`;
+    let index = 2;
+
+    while (usedNames.has(candidate)) {
+        candidate = `${baseSlug}-${index}${extension}`;
+        index += 1;
+    }
+
+    usedNames.add(candidate);
+    return candidate;
 }
 
 function normalizeTargets(targetsObject) {
