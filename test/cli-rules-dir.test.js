@@ -79,15 +79,6 @@ describe('init', () => {
         const content = fs.readFileSync(path.join(tmpDir, '.open-rules', '00-core.md'), 'utf8');
         assert.equal(content, '# Modified\n', 'Existing files must not be overwritten on re-init');
     });
-
-    test('--rules-dir uses a custom directory instead of .open-rules', () => {
-        const { status } = runCLI(['init', '--rules-dir', 'my-rules'], tmpDir);
-        assert.equal(status, 0);
-        assert.ok(fs.existsSync(path.join(tmpDir, 'my-rules', 'config.json')));
-        assert.ok(!fs.existsSync(path.join(tmpDir, '.open-rules')));
-        const config = JSON.parse(fs.readFileSync(path.join(tmpDir, 'my-rules', 'config.json'), 'utf8'));
-        assert.equal(config.rulesDir, 'my-rules');
-    });
 });
 
 // ---------------------------------------------------------------------------

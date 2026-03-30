@@ -32,13 +32,6 @@ open-rules sync
 open-rules sync --dry-run
 ```
 
-All commands accept a `--rules-dir <path>` flag to load rules from an alternate directory instead of `.open-rules`:
-
-```bash
-open-rules init --rules-dir my-test-rules
-open-rules sync --rules-dir my-test-rules --dry-run
-```
-
 Import sources from existing tool files into `.open-rules`:
 
 ```bash
