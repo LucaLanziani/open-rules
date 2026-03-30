@@ -8,4 +8,5 @@ Do not rely on copied content in this file.
 ### Rule files
 
 - `.open-rules/00-core.md`
+- `.open-rules/80-technical-context.md`
 
