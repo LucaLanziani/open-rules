@@ -28,7 +28,9 @@ const DEFAULT_CONFIG = {
 };
 
 async function main(args) {
-    const command = args[0] || 'sync';
+    const rulesDir = parseFlagValue(args, '--rules-dir');
+    const cleanedArgs = removeFlagWithValue(args, '--rules-dir');
+    const command = cleanedArgs[0] || 'sync';
 
     if (command === 'help' || command === '--help' || command === '-h') {
         printHelp();
@@ -36,28 +38,28 @@ async function main(args) {
     }
 
     if (command === 'init') {
-        initProject(process.cwd());
+        initProject(process.cwd(), { rulesDir });
         return;
     }
 
     if (command === 'sync') {
-        const dryRun = args.includes('--dry-run');
-        syncRules(process.cwd(), { dryRun });
+        const dryRun = cleanedArgs.includes('--dry-run');
+        syncRules(process.cwd(), { dryRun, rulesDir });
         return;
     }
 
     if (command === 'add') {
-        const name = args[1];
+        const name = cleanedArgs[1];
         if (!name) {
             throw new Error('Please provide a rule name. Example: open-rules add security-basics');
         }
 
-        addRule(process.cwd(), name);
+        addRule(process.cwd(), name, { rulesDir });
         return;
     }
 
     if (command === 'import') {
-        importRules(process.cwd(), args.slice(1));
+        importRules(process.cwd(), cleanedArgs.slice(1), { rulesDir });
         return;
     }
 
@@ -75,6 +77,9 @@ function printHelp() {
         '  open-rules sync [--dry-run]     Generate adapter files for enabled targets',
         '  open-rules help                 Show this help',
         '',
+        'Global options:',
+        '  --rules-dir <path>              Use a custom rules directory (default: .open-rules)',
+        '',
         'Import options:',
         '  sources: copilot cursor claude all (default: all)',
         '  --force                         Overwrite existing imported files',
@@ -83,15 +88,17 @@ function printHelp() {
     ].join('\n'));
 }
 
-function initProject(rootDir) {
-    const configPath = path.join(rootDir, DEFAULT_CONFIG.rulesDir, 'config.json');
-    const readmePath = path.join(rootDir, DEFAULT_CONFIG.rulesDir, 'README.md');
-    const coreRulePath = path.join(rootDir, DEFAULT_CONFIG.rulesDir, '00-core.md');
+function initProject(rootDir, options = {}) {
+    const effectiveRulesDir = options.rulesDir || DEFAULT_CONFIG.rulesDir;
+    const configPath = path.join(rootDir, effectiveRulesDir, 'config.json');
+    const readmePath = path.join(rootDir, effectiveRulesDir, 'README.md');
+    const coreRulePath = path.join(rootDir, effectiveRulesDir, '00-core.md');
 
     ensureDir(path.dirname(configPath));
 
     if (!fs.existsSync(configPath)) {
-        fs.writeFileSync(configPath, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, 'utf8');
+        const initConfig = { ...DEFAULT_CONFIG, rulesDir: effectiveRulesDir };
+        fs.writeFileSync(configPath, `${JSON.stringify(initConfig, null, 2)}\n`, 'utf8');
         console.log(`Created ${relativeToRoot(rootDir, configPath)}`);
     }
 
@@ -121,8 +128,8 @@ function initProject(rootDir) {
     console.log('Initialization complete.');
 }
 
-function addRule(rootDir, rawName) {
-    const config = loadConfig(rootDir);
+function addRule(rootDir, rawName, options = {}) {
+    const config = loadConfig(rootDir, options.rulesDir);
     const rulesDir = path.join(rootDir, config.rulesDir);
 
     ensureDir(rulesDir);
@@ -144,10 +151,10 @@ function addRule(rootDir, rawName) {
     console.log(`Created ${relativeToRoot(rootDir, nextPath)}`);
 }
 
-function importRules(rootDir, args = []) {
-    ensureInitialized(rootDir);
+function importRules(rootDir, args = [], options = {}) {
+    ensureInitialized(rootDir, options);
 
-    const config = loadConfig(rootDir);
+    const config = loadConfig(rootDir, options.rulesDir);
     const rulesDir = path.join(rootDir, config.rulesDir);
     const force = args.includes('--force');
     const shouldSync = args.includes('--sync');
@@ -224,13 +231,13 @@ function importRules(rootDir, args = []) {
     console.log(`Import finished: ${importedCount} imported, ${skippedCount} skipped.`);
 
     if (shouldSync) {
-        syncRules(rootDir, { dryRun: false });
+        syncRules(rootDir, { dryRun: false, rulesDir: options.rulesDir });
     }
 }
 
 function syncRules(rootDir, options = {}) {
-    const { dryRun = false } = options;
-    const config = loadConfig(rootDir);
+    const { dryRun = false, rulesDir: rulesDirOverride = null } = options;
+    const config = loadConfig(rootDir, rulesDirOverride);
     const rulesDir = path.join(rootDir, config.rulesDir);
 
     if (!fs.existsSync(rulesDir)) {
@@ -290,8 +297,9 @@ function syncRules(rootDir, options = {}) {
     }
 }
 
-function loadConfig(rootDir) {
-    const configPath = path.join(rootDir, DEFAULT_CONFIG.rulesDir, 'config.json');
+function loadConfig(rootDir, rulesDirOverride = null) {
+    const effectiveRulesDir = rulesDirOverride || DEFAULT_CONFIG.rulesDir;
+    const configPath = path.join(rootDir, effectiveRulesDir, 'config.json');
 
     if (!fs.existsSync(configPath)) {
         throw new Error(`Config not found at ${relativeToRoot(rootDir, configPath)}. Run \`open-rules init\` first.`);
@@ -301,6 +309,7 @@ function loadConfig(rootDir) {
     return {
         ...DEFAULT_CONFIG,
         ...parsed,
+        rulesDir: rulesDirOverride || parsed.rulesDir || DEFAULT_CONFIG.rulesDir,
         targets: {
             ...DEFAULT_CONFIG.targets,
             ...(parsed.targets || {})
@@ -308,10 +317,11 @@ function loadConfig(rootDir) {
     };
 }
 
-function ensureInitialized(rootDir) {
-    const configPath = path.join(rootDir, DEFAULT_CONFIG.rulesDir, 'config.json');
+function ensureInitialized(rootDir, options = {}) {
+    const effectiveRulesDir = options.rulesDir || DEFAULT_CONFIG.rulesDir;
+    const configPath = path.join(rootDir, effectiveRulesDir, 'config.json');
     if (!fs.existsSync(configPath)) {
-        initProject(rootDir);
+        initProject(rootDir, options);
     }
 }
 
@@ -689,6 +699,22 @@ function toTitle(input) {
 
 function relativeToRoot(rootDir, targetPath) {
     return path.relative(rootDir, targetPath).replaceAll('\\\\', '/') || '.';
+}
+
+function parseFlagValue(args, flag) {
+    const idx = args.indexOf(flag);
+    if (idx !== -1 && idx + 1 < args.length && !String(args[idx + 1]).startsWith('--')) {
+        return args[idx + 1];
+    }
+    return null;
+}
+
+function removeFlagWithValue(args, flag) {
+    const idx = args.indexOf(flag);
+    if (idx === -1) {
+        return args;
+    }
+    return args.filter((_, i) => i !== idx && i !== idx + 1);
 }
 
 module.exports = {

@@ -1,5 +1,19 @@
 # Commands
 
+## Global Option: `--rules-dir <path>`
+
+All commands accept `--rules-dir <path>` to load rules from a directory other than the default `.open-rules`. When provided, the tool looks for `config.json` inside that directory, uses it as the rules source, and generates adapters accordingly. This is the primary way to test the tool against an alternate ruleset without touching your production `.open-rules` setup.
+
+**Examples:**
+```bash
+open-rules init --rules-dir my-test-rules
+open-rules sync --rules-dir my-test-rules
+open-rules sync --rules-dir my-test-rules --dry-run
+open-rules add my-rule --rules-dir my-test-rules
+open-rules import all --rules-dir my-test-rules --force --sync
+```
+
+
 The CLI tool executes actions via positional arguments parsed natively within `src/cli.js`.
 
 ### `open-rules init`
