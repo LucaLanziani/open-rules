@@ -11,10 +11,14 @@ function normalizeApplyTo(input) {
     if (Array.isArray(input)) {
         const cleaned = input
             .filter((item) => typeof item === 'string' && item.trim().length > 0)
-            .map((item) => toYamlQuotedString(item.trim()));
+            .map((item) => item.trim());
 
-        if (cleaned.length > 0) {
-            return `[${cleaned.join(', ')}]`;
+        if (cleaned.length === 1) {
+            return toYamlQuotedString(cleaned[0]);
+        }
+
+        if (cleaned.length > 1) {
+            return `[${cleaned.map((item) => toYamlQuotedString(item)).join(', ')}]`;
         }
     }
 

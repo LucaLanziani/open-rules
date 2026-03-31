@@ -2,6 +2,7 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 const { renderTargetContent } = require('./targets');
+const { toTitle } = require('./targets/helpers');
 
 const DEFAULT_CONFIG = {
     rulesDir: '.open-rules',
@@ -11,13 +12,11 @@ const DEFAULT_CONFIG = {
         copilot: {
             enabled: true,
             path: '.github/copilot-instructions.md',
-            applyTo: '**/*',
             sourceMode: 'reference'
         },
         cursor: {
             enabled: true,
             path: '.cursor/rules/open-rules.mdc',
-            applyTo: '**/*',
             sourceMode: 'reference'
         },
         claude: {
@@ -29,7 +28,7 @@ const DEFAULT_CONFIG = {
 };
 
 async function main(args) {
-    const command = args[0] || 'sync';
+    const command = args[0] || 'help';
 
     if (command === 'help' || command === '--help' || command === '-h') {
         printHelp();
@@ -360,9 +359,9 @@ async function importRulesFromGitHub(rootDir, repoArg, { force, ref, rulesDir, c
     const slug = [owner, repo].map(toSlug).join('-');
 
     const targetDefs = {
-        copilot: { path: (config.targets && config.targets.copilot && config.targets.copilot.path) || DEFAULT_CONFIG.targets.copilot.path },
-        cursor: { path: (config.targets && config.targets.cursor && config.targets.cursor.path) || DEFAULT_CONFIG.targets.cursor.path },
-        claude: { path: (config.targets && config.targets.claude && config.targets.claude.path) || DEFAULT_CONFIG.targets.claude.path }
+        copilot: { path: config.targets.copilot.path },
+        cursor: { path: config.targets.cursor.path },
+        claude: { path: config.targets.claude.path }
     };
 
     let importedCount = 0;
@@ -571,7 +570,7 @@ function syncRules(rootDir, options = {}) {
     const files = listRuleFiles(rulesDir, config)
         .map((filePath) => ({
             absPath: filePath,
-            relPath: path.relative(rulesDir, filePath).replaceAll('\\\\', '/'),
+            relPath: path.relative(rulesDir, filePath).replaceAll('\\', '/'),
             ...parseRuleFile(fs.readFileSync(filePath, 'utf8'))
         }))
         .filter((item) => item.content.length > 0)
@@ -965,8 +964,8 @@ function resolveSourcePath(rootDir, config, sourceName) {
 }
 
 function extractImportableContent(rawContent) {
-    const withoutFrontmatter = stripLeadingFrontmatter(rawContent);
-    const lines = withoutFrontmatter.split(/\r?\n/);
+    const { body } = splitFrontmatter(rawContent);
+    const lines = body.split(/\r?\n/);
 
     while (lines.length > 0 && lines[0].trim().length === 0) {
         lines.shift();
@@ -980,14 +979,6 @@ function extractImportableContent(rawContent) {
     }
 
     return lines.join('\n').trim();
-}
-
-function stripLeadingFrontmatter(content) {
-    if (!content.startsWith('---')) {
-        return content;
-    }
-
-    return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
 }
 
 function looksLikeGeneratedOpenRules(content) {
@@ -1009,17 +1000,8 @@ function toSlug(input) {
         .replace(/^-+|-+$/g, '') || 'rule';
 }
 
-function toTitle(input) {
-    return input
-        .replace(/[-_]+/g, ' ')
-        .split(' ')
-        .filter(Boolean)
-        .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
-        .join(' ');
-}
-
 function relativeToRoot(rootDir, targetPath) {
-    return path.relative(rootDir, targetPath).replaceAll('\\\\', '/') || '.';
+    return path.relative(rootDir, targetPath).replaceAll('\\', '/') || '.';
 }
 
 module.exports = {
