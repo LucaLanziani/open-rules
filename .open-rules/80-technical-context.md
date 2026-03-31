@@ -54,8 +54,3 @@ The `importRules()` function is async and handles two kinds of sources:
 4. Downloads each file via `downloadFile()`, which follows up to 5 redirects.
 5. Writes files into `.open-rules/<owner-repo-slug>[/<folder>]/` — skipping existing ones unless `--force` is passed.
 6. Optionally runs `syncRules()` when `--sync` is provided.
-
-## Testing
-Tests live in `test/` and use Node.js built-in `node:test` + `node:assert/strict`. No external test dependencies.
-Each test suite creates an isolated temp directory via `fs.mkdtempSync`, runs `open-rules init` inside it, and cleans up with `fs.rmSync` in `afterEach`. This means tests never touch the project's own `.open-rules`.
-Run with: `npm test`
