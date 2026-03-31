@@ -30,10 +30,22 @@ To support a new AI assistant format, perform these steps strictly:
 3. Update `.open-rules/config.json` to include the new target object with at minimum: `enabled: true`, `path`, and `sourceMode` (`reference` | `embed`).
 
 ## Import Flow (`open-rules import`)
-1. Reads existing configured target paths (`CLAUDE.md`, `.cursorrules`, etc.).
-2. Calls `stripLeadingFrontmatter()` and cleans title headers.
+The `importRules()` function is async and handles two kinds of sources:
+
+**Local sources** (`copilot`, `cursor`, `claude`, `all`):
+1. Reads existing configured target paths (`CLAUDE.md`, `.cursorrules`, etc.) via `resolveSourcePath()`.
+2. Calls `stripLeadingFrontmatter()` and cleans title headers with `extractImportableContent()`.
 3. Guards against circular imports by checking for existing generator signatures with `looksLikeGeneratedOpenRules()`.
 4. Writes sanitized results to `.open-rules/90-import-<source>.md`.
+
+**GitHub repo sources** (`owner/repo`):
+1. Recognised by containing a `/`. Each repo arg is passed to `importRulesFromGitHub()`.
+2. `importRulesFromGitHub()` iterates over the three known target file paths (copilot, cursor, claude), calling `fetchGitHubFileMeta()` for each.
+3. `fetchGitHubFileMeta()` calls `httpsGetJson()` against the GitHub Contents API (`/repos/{owner}/{repo}/contents/{filePath}?ref={ref}`). The API base is overridable with `OPEN_RULES_GITHUB_API_BASE` (used in tests).
+4. Downloads each file via `downloadFile()`, applies the same extraction and generated-content guards as local imports.
+5. Outputs to `.open-rules/90-import-<owner-slug>-<repo-slug>-<source>.md`.
+6. Skips existing files unless `--force` is passed; optionally runs `syncRules()` when `--sync` is provided.
+7. `--ref <branch|tag>` applies to all GitHub sources in the invocation.
 
 ## Fetch Flow (`open-rules fetch <owner>/<repo>[/<folder>]`)
 1. Parses the positional argument with `parseGitHubRef()` into `{ owner, repo, folder }`.

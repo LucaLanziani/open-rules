@@ -41,14 +41,20 @@ The CLI tool executes actions via positional arguments parsed natively within `s
 - Sorts rules array, combines them via referenced rules or embed strategy.
 - Uses `renderTargetContent()` to convert intermediate representations to tool-specific adapters.
 
-### `open-rules import [sources...] [--force] [--sync]`
-**Description**: Pulls extant AI rules built manually down into the `.open-rules` format.
+### `open-rules import [sources...] [--force] [--sync] [--ref <branch|tag>]`
+**Description**: Pulls extant AI rules built manually down into the `.open-rules` format. Sources can be local target names or GitHub repositories.
 **Arguments**:
-- `[sources...]`: Select target sources to query (`copilot`, `cursor`, `claude`, or `all`). Default connects to `all`.
-- `--force`: Ignore preexisting `90-import-<source>.md` files and actively overwrite them. 
+- `[sources...]`: Select target sources to query (`copilot`, `cursor`, `claude`, `all`, or a GitHub repo as `owner/repo`). Default connects to all local targets.
+- `--force`: Ignore preexisting import files and actively overwrite them. 
 - `--sync`: Automatically trigger a `sync` pass directly after retrieving the new files.
-**Operation**:
+- `--ref <branch|tag>`: When importing from a GitHub repo, use this branch or tag instead of the default branch.
+**Operation (local sources)**:
 - Resolves where e.g. Cursor expects files based on the `config.json`.
 - Extracts information, intentionally stripping generated markdown labels (`# Copilot Instructions`), standard comments, and formatting YAML front matters.
 - Checks `looksLikeGeneratedOpenRules()` ensuring it won't mistakenly consume previously generated output.
 - Outputs into e.g. `.open-rules/90-import-cursor.md`.
+**Operation (GitHub repo sources)**:
+- For each `owner/repo` argument, attempts to fetch `.github/copilot-instructions.md`, `.cursor/rules/open-rules.mdc`, and `CLAUDE.md` via the GitHub Contents API.
+- Applies the same cleaning and generated-content checks as local imports.
+- Outputs into `.open-rules/90-import-<owner>-<repo>-<source>.md` (e.g. `90-import-myorg-myrepo-copilot.md`).
+- Uses `OPEN_RULES_GITHUB_API_BASE` environment variable to override the API base (used in tests).

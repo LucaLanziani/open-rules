@@ -58,7 +58,7 @@ async function main(args) {
     }
 
     if (command === 'import') {
-        importRules(process.cwd(), args.slice(1));
+        await importRules(process.cwd(), args.slice(1));
         return;
     }
 
@@ -78,6 +78,8 @@ function printHelp() {
         '  open-rules init                 Initialize .open-rules and config',
         '  open-rules add <rule-name>      Create a new rule file in .open-rules',
         '  open-rules import [sources]     Import existing rules from copilot/cursor/claude',
+        '  open-rules import <owner>/<repo>',
+        '                                  Import rules directly from a GitHub repository',
         '  open-rules fetch <owner>/<repo>[/<folder>]',
         '                                  Fetch rules from a GitHub repository (or subfolder)',
         '  open-rules sync [--dry-run]     Generate adapter files for enabled targets',
@@ -85,6 +87,8 @@ function printHelp() {
         '',
         'Import options:',
         '  sources: copilot cursor claude all (default: all)',
+        '  owner/repo                      Import from a GitHub repository',
+        '  --ref <branch|tag>              Git ref to import from (default: repo default branch)',
         '  --force                         Overwrite existing imported files',
         '  --sync                          Run sync after import',
         '',
@@ -143,7 +147,7 @@ function addRule(rootDir, rawName) {
     console.log(`Created ${relativeToRoot(rootDir, nextPath)}`);
 }
 
-function importRules(rootDir, args = []) {
+async function importRules(rootDir, args = []) {
     ensureInitialized(rootDir);
 
     const config = loadConfig(rootDir);
@@ -153,23 +157,38 @@ function importRules(rootDir, args = []) {
 
     ensureDir(rulesDir);
 
+    // Values that follow --ref are option values, not source names
+    const optionValues = new Set();
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--ref' && i + 1 < args.length) {
+            optionValues.add(args[i + 1]);
+        }
+    }
+
     const requestedSources = args
-        .filter((arg) => !arg.startsWith('--'))
+        .filter((arg) => !arg.startsWith('--') && !optionValues.has(arg))
         .map((arg) => arg.toLowerCase());
 
-    const sourceCandidates = requestedSources.length === 0 || requestedSources.includes('all')
-        ? ['copilot', 'cursor', 'claude']
-        : requestedSources;
+    // Separate GitHub repo refs (contain '/') from local source names
+    const githubRefs = requestedSources.filter((s) => s.includes('/'));
+    const localRequested = requestedSources.filter((s) => !s.includes('/'));
 
-    const validSources = sourceCandidates.filter((name) => ['copilot', 'cursor', 'claude'].includes(name));
-    if (validSources.length === 0) {
-        throw new Error('No valid sources provided. Use: copilot, cursor, claude, or all.');
+    const localSourceCandidates = localRequested.length === 0 && githubRefs.length === 0
+        ? ['copilot', 'cursor', 'claude']
+        : localRequested.includes('all')
+            ? ['copilot', 'cursor', 'claude']
+            : localRequested;
+
+    const validLocalSources = localSourceCandidates.filter((name) => ['copilot', 'cursor', 'claude'].includes(name));
+
+    if (validLocalSources.length === 0 && githubRefs.length === 0) {
+        throw new Error('No valid sources provided. Use: copilot, cursor, claude, all, or a GitHub repo (owner/repo).');
     }
 
     let importedCount = 0;
     let skippedCount = 0;
 
-    for (const source of validSources) {
+    for (const source of validLocalSources) {
         const sourcePath = resolveSourcePath(rootDir, config, source);
         if (!sourcePath) {
             console.log(`Skipped ${source}: target path is not configured.`);
@@ -220,7 +239,19 @@ function importRules(rootDir, args = []) {
         importedCount += 1;
     }
 
-    console.log(`Import finished: ${importedCount} imported, ${skippedCount} skipped.`);
+    if (validLocalSources.length > 0) {
+        console.log(`Import finished: ${importedCount} imported, ${skippedCount} skipped.`);
+    }
+
+    // GitHub repo sources
+    if (githubRefs.length > 0) {
+        const refIdx = args.indexOf('--ref');
+        const ref = refIdx !== -1 && args[refIdx + 1] ? args[refIdx + 1] : '';
+
+        for (const repoArg of githubRefs) {
+            await importRulesFromGitHub(rootDir, repoArg, { force, ref, rulesDir, config });
+        }
+    }
 
     if (shouldSync) {
         syncRules(rootDir, { dryRun: false });
@@ -317,6 +348,97 @@ async function fetchFromGitHub(rootDir, args = []) {
     if (shouldSync) {
         syncRules(rootDir, { dryRun: false });
     }
+}
+
+async function importRulesFromGitHub(rootDir, repoArg, { force, ref, rulesDir, config }) {
+    const parsed = parseGitHubRef(repoArg);
+    if (!parsed) {
+        throw new Error(`Invalid GitHub repo reference: "${repoArg}". Expected format: owner/repo`);
+    }
+
+    const { owner, repo } = parsed;
+    const slug = [owner, repo].map(toSlug).join('-');
+
+    const targetDefs = {
+        copilot: { path: (config.targets && config.targets.copilot && config.targets.copilot.path) || DEFAULT_CONFIG.targets.copilot.path },
+        cursor:  { path: (config.targets && config.targets.cursor  && config.targets.cursor.path)  || DEFAULT_CONFIG.targets.cursor.path },
+        claude:  { path: (config.targets && config.targets.claude  && config.targets.claude.path)  || DEFAULT_CONFIG.targets.claude.path }
+    };
+
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    for (const [source, targetDef] of Object.entries(targetDefs)) {
+        const filePath = targetDef.path;
+        let fileMeta;
+
+        try {
+            fileMeta = await fetchGitHubFileMeta(owner, repo, filePath, ref);
+        } catch (_) {
+            console.log(`Skipped ${source}: file not found in ${owner}/${repo}.`);
+            skippedCount += 1;
+            continue;
+        }
+
+        let raw;
+        try {
+            raw = await downloadFile(fileMeta.download_url);
+        } catch (_) {
+            console.log(`Skipped ${source}: could not download from ${owner}/${repo}.`);
+            skippedCount += 1;
+            continue;
+        }
+
+        const cleaned = extractImportableContent(raw);
+
+        if (looksLikeGeneratedOpenRules(cleaned)) {
+            console.log(`Skipped ${source}: appears to be generated by open-rules.`);
+            skippedCount += 1;
+            continue;
+        }
+
+        if (cleaned.trim().length === 0) {
+            console.log(`Skipped ${source}: no importable content.`);
+            skippedCount += 1;
+            continue;
+        }
+
+        const outPath = path.join(rulesDir, `90-import-${slug}-${source}.md`);
+        if (fs.existsSync(outPath) && !force) {
+            console.log(`Skipped ${source}: ${relativeToRoot(rootDir, outPath)} already exists (use --force).`);
+            skippedCount += 1;
+            continue;
+        }
+
+        const output = [
+            `# Imported ${toTitle(source)} Instructions from ${owner}/${repo}`,
+            '',
+            `Source: \`github:${owner}/${repo}/${filePath}\``,
+            '',
+            cleaned.trim(),
+            ''
+        ].join('\n');
+
+        fs.writeFileSync(outPath, output, 'utf8');
+        console.log(`Imported ${source} from ${owner}/${repo} -> ${relativeToRoot(rootDir, outPath)}`);
+        importedCount += 1;
+    }
+
+    console.log(`Import from ${owner}/${repo} finished: ${importedCount} imported, ${skippedCount} skipped.`);
+}
+
+async function fetchGitHubFileMeta(owner, repo, filePath, ref) {
+    const apiBase = process.env.OPEN_RULES_GITHUB_API_BASE || 'https://api.github.com';
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const url = `${apiBase}/repos/${owner}/${repo}/contents/${filePath}${refQuery}`;
+    const result = await httpsGetJson(url);
+    if (Array.isArray(result)) {
+        throw new Error(`Expected a file but got a directory at ${filePath}`);
+    }
+    if (!result.download_url) {
+        throw new Error(`No download_url for ${filePath}`);
+    }
+    return result;
 }
 
 function parseGitHubRef(input) {

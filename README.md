@@ -42,18 +42,22 @@ Fetch rules from a public GitHub repository directly into `.open-rules/`:
 - `--force` — overwrite already-fetched files
 - `--sync` — run `sync` immediately after fetching
 
-Import sources from existing tool files into `.open-rules`:
+Import sources from existing tool files or GitHub repos into `.open-rules`:
 
 ```bash
 open-rules import
 open-rules import copilot cursor
 open-rules import claude --force
 open-rules import all --sync
+open-rules import myorg/myrepo
+open-rules import myorg/myrepo --ref main --sync
 ```
 
-- default sources: `all` (`copilot`, `cursor`, `claude`)
-- `--force`: overwrite existing imported files (`90-import-<source>.md`)
+- default sources: all local targets (`copilot`, `cursor`, `claude`)
+- `owner/repo`: import from `.github/copilot-instructions.md`, `CLAUDE.md`, and `.cursor/rules/open-rules.mdc` in a GitHub repo
+- `--force`: overwrite existing imported files (`90-import-<source>.md` or `90-import-<owner>-<repo>-<source>.md`)
 - `--sync`: run `sync` immediately after import
+- `--ref <branch|tag>`: use a specific branch or tag when importing from GitHub
 
 ## Config
 
