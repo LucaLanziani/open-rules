@@ -8,5 +8,7 @@ Do not rely on copied content in this file.
 ### Rule files
 
 - `.open-rules/00-core.md`
+- `.open-rules/10-conventional-commits.md`
+- `.open-rules/20-testing.md`
 - `.open-rules/80-technical-context.md`
 
