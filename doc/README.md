@@ -1,16 +1,40 @@
-# Open Rules Technical Documentation
+# Open Rules Documentation
 
-Welcome to the technical documentation for **Open Rules**. 
-
-The `open-rules` tool is a CLI application designed to consolidate AI-agent instructions into a single source of truth (the `.open-rules` directory), which then synchronizes and generates adapters for multiple distinct AI environments in common formats such as GitHub Copilot, Cursor, and Claude Code.
+`open-rules` consolidates AI-agent instructions into a single source directory (`.open-rules/`) and generates adapter files for GitHub Copilot, Cursor, Claude Code, and custom targets. Write your rules once, sync everywhere.
 
 ## Table of Contents
 
-1. [Architecture Overview](./architecture.md) - System design, folder structures, and data flow.
-2. [CLI Commands](./commands.md) - Detailed breakdown of initialization, sync, add, and import operations.
-3. [Configuration](./configuration.md) - Understanding `.open-rules/config.json`.
-4. [Extending the System](./extending.md) - How to implement new AI targets/adapters.
+1. [Architecture Overview](./architecture.md) — System design, folder structure, and data flow.
+2. [CLI Commands](./commands.md) — Complete reference for every command with examples.
+3. [Configuration](./configuration.md) — Understanding `.open-rules/config.json`.
+4. [Rule Files](./rule-files.md) — Writing rules, frontmatter, scoping with `applyTo`, and targeting.
+5. [Examples](./examples.md) — Real-world usage patterns and recipes.
+6. [Extending the System](./extending.md) — How to add new target adapters.
 
-## Purpose
+## Why
 
-Different AI assistants (Copilot, Cursor, Claude Code, Cline, Windsurf, etc.) use different file names, frontmatter formats, and rules for ingesting instructions. Maintaining identical guidelines across multiple files leads to drift and duplication. `open-rules` solves this by giving you *one* place to write rules in plain Markdown and a single command to sync them to every target platform automatically.
+Different AI assistants use different file names, frontmatter formats, and conventions for ingesting instructions. Maintaining identical guidelines across multiple files leads to drift and duplication. `open-rules` gives you **one** place to write rules in plain Markdown and a single command to sync them everywhere.
+
+## Quick Start
+
+```bash
+# Install
+npm install -g open-rules
+
+# Initialize in your project
+cd my-project
+open-rules init
+
+# Edit rules
+$EDITOR .open-rules/00-core.md
+
+# Generate adapter files
+open-rules sync
+```
+
+This creates:
+- `.open-rules/config.json` — source and target configuration
+- `.open-rules/00-core.md` — default rule file (source of truth)
+- `.github/copilot-instructions.md` — Copilot adapter
+- `.cursor/rules/open-rules.mdc` — Cursor adapter
+- `CLAUDE.md` — Claude Code adapter

@@ -1,36 +1,23 @@
 # Extending Targets
 
-The generic rendering architecture makes adding new formats highly accessible. Implementing AI plugins for VSCode, new LLMs, or generic project configurations only require two steps:
+Adding new target formats requires two steps: create a renderer module and register it.
 
-## 1. Create a `src/targets/<target-name>.js` Render Module
+## 1. Create `src/targets/<target-name>.js`
 
-Render modules are simple pure functions. They ingest the finalized `target` configuration properties, alongside the fully traversed `content` bundle. Output expects a single formatted string.
+Renderers are pure functions that take a `target` config object and a `content` bundle, and return a formatted string.
 
-*Example scenario: A theoretical platform called `windsurf`.*
-Create `src/targets/windsurf.js`:
+Example for a hypothetical "windsurf" target:
 
 ```javascript
 // src/targets/windsurf.js
 const { resolveRulesBody, normalizeApplyTo } = require('./helpers');
 
 function renderWindsurfTarget(target, content) {
-    // Determine whether to use "reference" or "embed" text based on config
     const rulesBody = resolveRulesBody(target, content);
-    
-    // Process optional glob structures.
-    const applyTo = normalizeApplyTo(target.applyTo);
-    
-    const formattedHeader = [
-        '<windsurf-config>',
-        `  apply: ${applyTo.length > 0 ? applyTo : '*'}`,
-        '</windsurf-config>',
-        ''
-    ];
 
-    // Combine and emit.
     return [
-        ...formattedHeader,
-        '# Windsurf Auto-Generated Instructions\n',
+        '# Windsurf Instructions',
+        '',
         rulesBody,
         ''
     ].join('\n');
@@ -41,41 +28,68 @@ module.exports = {
 };
 ```
 
-**Common Helper Functions via `src/targets/helpers.js`:**
-- `resolveRulesBody(target, content)`: Automatically processes `sourceMode` (`reference` vs `embed`) returning the correct string chunk.
-- `normalizeApplyTo(input)`: Transforms string-driven rules to Yaml-Quoted strings or Array formats conditionally.
-- `toTitle(input)`: Capitalizes properties.
+### Available Helpers (`src/targets/helpers.js`)
 
-## 2. Register via `src/targets/index.js`
+| Function | Description |
+|---|---|
+| `resolveRulesBody(target, content)` | Returns the correct string based on `sourceMode` (`reference` → pointer list, `embed` → full content). |
+| `normalizeApplyTo(input)` | Converts a string or array of globs to a YAML-safe quoted string. Returns `''` if empty. |
+| `toTitle(input)` | Converts a slug like `my-rule` to `My Rule`. |
 
-To hook the new module into the main sync loop, update `index.js`. 
+### The `target` object
+
+The renderer receives:
 
 ```javascript
-// src/targets/index.js
-const { renderCopilotTarget } = require('./copilot');
-const { renderCursorTarget } = require('./cursor');
-const { renderClaudeTarget } = require('./claude');
-// 1. Import your target module
-const { renderWindsurfTarget } = require('./windsurf'); 
-const { renderGenericTarget } = require('./generic');
+{
+  name: 'windsurf',          // key from config.targets
+  enabled: true,
+  path: '.windsurf/rules.md',
+  sourceMode: 'reference',
+  applyTo: ['src/**/*.ts']   // only present for scoped rule renders
+}
+```
+
+### The `content` object
+
+```javascript
+{
+  mergedRules: '...',       // full concatenated Markdown (for embed mode)
+  referencedRules: '...'    // pointer list Markdown (for reference mode)
+}
+```
+
+## 2. Register in `src/targets/index.js`
+
+```javascript
+const { renderWindsurfTarget } = require('./windsurf');
 
 const targetRenderers = {
     copilot: renderCopilotTarget,
     cursor: renderCursorTarget,
     claude: renderClaudeTarget,
-    // 2. Link your renderer to the config target key
-    windsurf: renderWindsurfTarget 
-};
-
-function renderTargetContent(target, content) {
-    const renderer = targetRenderers[target.name] || renderGenericTarget;
-    return renderer(target, content);
-}
-
-module.exports = {
-    renderTargetContent,
-    targetRenderers
+    windsurf: renderWindsurfTarget  // add your renderer
 };
 ```
 
-Your system is now completely hooked into configuration files. Define `windsurf` in your `config.json` targets, run `open-rules sync`, and the resulting `path` destination will automatically map against `renderWindsurfTarget`.
+The key must match the target name in `config.json`. Unrecognized target names fall back to `renderGenericTarget`.
+
+## 3. Add to config
+
+```json
+{
+  "targets": {
+    "windsurf": {
+      "enabled": true,
+      "path": ".windsurf/rules.md",
+      "sourceMode": "embed"
+    }
+  }
+}
+```
+
+Run `open-rules sync` and the new target file is generated.
+
+## Scoped Rule Support
+
+Currently, only `copilot` and `cursor` support scoped rules (per-file outputs from `applyTo` frontmatter). The scoped output directory and file extension are defined in `resolveScopedOutputMeta()` in `src/cli.js`. To add scoped rule support for a new target, add a case there and include the target name in the `supportsScopedRules` check in `syncRules()`.

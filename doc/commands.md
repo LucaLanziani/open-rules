@@ -1,60 +1,209 @@
-# Commands
+# CLI Commands
 
-The CLI tool executes actions via positional arguments parsed natively within `src/cli.js`.
+All commands are run as `open-rules <command> [options]`.
 
-### `open-rules init`
-**Description**: Initializes the current directory as an Open Rules source.
-**Operation**:
-1. Creates the `.open-rules` directory.
-2. Bootstraps `.open-rules/config.json` with the `DEFAULT_CONFIG`.
-3. Populates basic placeholder files (`README.md`, `00-core.md`).
+## `open-rules init`
 
-### `open-rules add <rule-name>`
-**Description**: Scaffolds a new rule markdown file.
-**Arguments**:
-- `<rule-name>`: A human-readable title (e.g., `security basics`). Quotes aren't required, but the string will be slugified.
-**Operation**:
-- Filters output via `toSlug()` generating e.g. `.open-rules/security-basics.md`.
-- File content gets scaffolded with an auto-generated title.
+Initializes the current directory as an open-rules project.
 
-### `open-rules fetch <owner>/<repo>[/<folder>] [--ref <ref>] [--force] [--sync]`
-**Description**: Downloads rule files directly from a GitHub repository into `.open-rules/`.
-**Arguments**:
-- `<owner>/<repo>`: GitHub repository in `owner/repo` format.
-- `[/<folder>]`: Optional subfolder path within the repository (e.g., `owner/repo/rules/backend`).
-- `--ref <branch|tag>`: Git ref to fetch from. Defaults to the repository's default branch.
-- `--force`: Overwrite files that already exist locally.
-- `--sync`: Run `sync` immediately after fetching.
-**Operation**:
-- Calls the GitHub Contents API to list files in the target path.
-- Filters files by `config.includeExtensions` (`.md`, `.txt`, `.mdc` by default).
-- Downloads each file and writes it to `.open-rules/<owner-repo>/<folder>/`.
-- Skips already-existing files unless `--force` is given.
-- The GitHub API base URL can be overridden with the `OPEN_RULES_GITHUB_API_BASE` environment variable.
+**What it does:**
+1. Creates the `.open-rules/` directory.
+2. Writes `.open-rules/config.json` with default configuration.
+3. Copies starter files from built-in defaults (`00-core.md`, `README.md`).
 
-### `open-rules sync [--dry-run]`
-**Description**: Triggers the generation process that outputs target artifacts.
-**Arguments**:
-- `--dry-run`: (Optional) Read the rules, generate the artifact strings entirely in memory, but dump the expected file outputs and sizes to standard output without touching the filesystem.
-**Operation**:
-- Reads configuration and validates directory presence.
-- Sorts rules array, combines them via referenced rules or embed strategy.
-- Uses `renderTargetContent()` to convert intermediate representations to tool-specific adapters.
+Files that already exist are never overwritten.
 
-### `open-rules import [sources...] [--force] [--sync] [--ref <branch|tag>]`
-**Description**: Pulls extant AI rules built manually down into the `.open-rules` format. Sources can be local target names or GitHub repositories.
-**Arguments**:
-- `[sources...]`: Select target sources to query (`copilot`, `cursor`, `claude`, `all`, or a GitHub repo as `owner/repo`). Default connects to all local targets.
-- `--force`: Ignore preexisting import files and actively overwrite them. 
-- `--sync`: Automatically trigger a `sync` pass directly after retrieving the new files.
-- `--ref <branch|tag>`: When importing from a GitHub repo, use this branch or tag instead of the default branch.
-**Operation (local sources)**:
-- Resolves where e.g. Cursor expects files based on the `config.json`.
-- Extracts information, intentionally stripping generated markdown labels (`# Copilot Instructions`), standard comments, and formatting YAML front matters.
-- Checks `looksLikeGeneratedOpenRules()` ensuring it won't mistakenly consume previously generated output.
-- Outputs into e.g. `.open-rules/90-import-cursor.md`.
-**Operation (GitHub repo sources)**:
-- For each `owner/repo` argument, attempts to fetch `.github/copilot-instructions.md`, `.cursor/rules/open-rules.mdc`, and `CLAUDE.md` via the GitHub Contents API.
-- Applies the same cleaning and generated-content checks as local imports.
-- Outputs into `.open-rules/90-import-<owner>-<repo>-<source>.md` (e.g. `90-import-myorg-myrepo-copilot.md`).
-- Uses `OPEN_RULES_GITHUB_API_BASE` environment variable to override the API base (used in tests).
+```bash
+open-rules init
+# Created .open-rules/config.json
+# Created .open-rules/00-core.md
+# Created .open-rules/README.md
+# Initialization complete.
+```
+
+---
+
+## `open-rules add <rule-name>`
+
+Scaffolds a new rule file in `.open-rules/`.
+
+**Arguments:**
+- `<rule-name>` — A human-readable name. It is slugified automatically (e.g., `security basics` → `security-basics.md`).
+
+**Behavior:**
+- Fails if the file already exists.
+- Creates a Markdown file with an auto-generated title heading.
+
+```bash
+open-rules add security-basics
+# Created .open-rules/security-basics.md
+
+open-rules add "TypeScript conventions"
+# Created .open-rules/typescript-conventions.md
+```
+
+The generated file looks like:
+```markdown
+# Security Basics
+
+- Add instructions here.
+```
+
+---
+
+## `open-rules sync [--dry-run]`
+
+Reads all rule files from `.open-rules/` and generates adapter files for each enabled target.
+
+**Options:**
+- `--dry-run` — Show what would be written without touching the filesystem.
+
+**Behavior:**
+1. Loads config from `.open-rules/config.json`.
+2. Discovers rule files recursively (filtered by `includeExtensions` and `excludeFiles`).
+3. Parses frontmatter for `applyTo` and `targets` metadata.
+4. For each enabled target, generates the output file using the configured `sourceMode` (`reference` or `embed`).
+5. For Copilot and Cursor, scoped rules (those with `applyTo` frontmatter) produce separate per-rule output files.
+6. Stale scoped output files (from rules that no longer have `applyTo`) are automatically removed.
+
+```bash
+open-rules sync
+# Wrote .github/copilot-instructions.md
+# Wrote .github/instructions/open-rules-20-testing.instructions.md
+# Wrote .cursor/rules/open-rules.mdc
+# Wrote .cursor/rules/open-rules-20-testing.mdc
+# Wrote CLAUDE.md
+
+open-rules sync --dry-run
+# [dry-run] Would write .github/copilot-instructions.md (312 chars)
+# [dry-run] Would write .cursor/rules/open-rules.mdc (287 chars)
+# [dry-run] Would write CLAUDE.md (295 chars)
+```
+
+---
+
+## `open-rules import [sources...] [options]`
+
+Imports existing AI rules into `.open-rules/`. Sources can be local target files or a GitHub repository.
+
+### Local import
+
+Pulls rules from existing Copilot, Cursor, or Claude files already in your project.
+
+**Arguments:**
+- `copilot`, `cursor`, `claude`, or `all` (default: `all`).
+
+**Options:**
+- `--force` — Overwrite existing import files.
+- `--sync` — Run `sync` immediately after import.
+
+```bash
+# Import from all local targets
+open-rules import
+
+# Import only from Copilot and Claude
+open-rules import copilot claude
+
+# Overwrite existing imports and sync
+open-rules import all --force --sync
+```
+
+Imported files are written as `.open-rules/90-import-<source>.md`.
+
+**Safety:** Files that look like they were generated by `open-rules` are skipped to avoid circular imports.
+
+### GitHub import
+
+Imports rules from a remote GitHub repository's standard target files (`.github/copilot-instructions.md`, `.cursor/rules/open-rules.mdc`, `CLAUDE.md`).
+
+**Arguments:**
+- `<owner>/<repo>` — GitHub repository reference.
+
+**Options:**
+- `--ref <branch|tag>` — Git ref to use (default: repo default branch).
+- `--force` — Overwrite existing import files.
+- `--sync` — Run `sync` immediately after import.
+
+```bash
+open-rules import myorg/shared-rules
+# Imported copilot from myorg/shared-rules -> .open-rules/90-import-myorg-shared-rules-copilot.md
+# Imported claude from myorg/shared-rules -> .open-rules/90-import-myorg-shared-rules-claude.md
+
+open-rules import myorg/shared-rules --ref v2.0 --force --sync
+```
+
+### Mixed sources
+
+You can combine local and GitHub sources in a single command:
+
+```bash
+open-rules import cursor myorg/shared-rules --sync
+```
+
+---
+
+## `open-rules fetch <owner>/<repo>[/<folder>] [options]`
+
+Downloads rule files directly from a GitHub repository into `.open-rules/`.
+
+Unlike `import`, which extracts content from standard target files, `fetch` downloads raw rule files from any path in a repo — ideal for sharing `.open-rules/` directories across projects.
+
+**Arguments:**
+- `<owner>/<repo>` — GitHub repository.
+- `[/<folder>]` — Optional subfolder within the repo.
+
+**Options:**
+- `--ref <branch|tag>` — Git ref (default: repo default branch).
+- `--force` — Overwrite existing files.
+- `--sync` — Run `sync` immediately after fetch.
+
+```bash
+# Fetch all rule files from repo root
+open-rules fetch myorg/shared-rules
+# Fetched 00-core.md -> .open-rules/myorg-shared-rules/00-core.md
+# Fetched 10-security.md -> .open-rules/myorg-shared-rules/10-security.md
+
+# Fetch from a subfolder
+open-rules fetch myorg/monorepo/teams/backend-rules
+# Fetched 00-api-standards.md -> .open-rules/myorg-monorepo/teams/backend-rules/00-api-standards.md
+
+# Fetch a specific branch and sync
+open-rules fetch myorg/shared-rules --ref main --force --sync
+```
+
+**File filtering:** Only files matching `includeExtensions` from your config (`.md`, `.txt`, `.mdc` by default) are downloaded.
+
+**Destination:** Files are placed under `.open-rules/<owner-repo>/[<folder>/]`.
+
+---
+
+## `open-rules help`
+
+Prints usage information.
+
+```bash
+open-rules help
+open-rules --help
+open-rules -h
+```
+
+---
+
+## Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `OPEN_RULES_GITHUB_API_BASE` | Override the GitHub API base URL (default: `https://api.github.com`). Useful for GitHub Enterprise or testing. |
+
+---
+
+## npm Scripts
+
+The default `package.json` includes convenience scripts:
+
+```bash
+npm run init       # open-rules init
+npm run sync       # open-rules sync
+npm run check      # open-rules sync --dry-run
+npm test           # run test suite
+```
