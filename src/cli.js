@@ -361,8 +361,8 @@ async function importRulesFromGitHub(rootDir, repoArg, { force, ref, rulesDir, c
 
     const targetDefs = {
         copilot: { path: (config.targets && config.targets.copilot && config.targets.copilot.path) || DEFAULT_CONFIG.targets.copilot.path },
-        cursor:  { path: (config.targets && config.targets.cursor  && config.targets.cursor.path)  || DEFAULT_CONFIG.targets.cursor.path },
-        claude:  { path: (config.targets && config.targets.claude  && config.targets.claude.path)  || DEFAULT_CONFIG.targets.claude.path }
+        cursor: { path: (config.targets && config.targets.cursor && config.targets.cursor.path) || DEFAULT_CONFIG.targets.cursor.path },
+        claude: { path: (config.targets && config.targets.claude && config.targets.claude.path) || DEFAULT_CONFIG.targets.claude.path }
     };
 
     let importedCount = 0;
