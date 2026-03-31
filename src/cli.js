@@ -1,4 +1,5 @@
 const fs = require('fs');
+const https = require('https');
 const path = require('path');
 const { renderTargetContent } = require('./targets');
 
@@ -61,6 +62,11 @@ async function main(args) {
         return;
     }
 
+    if (command === 'fetch') {
+        await fetchFromGitHub(process.cwd(), args.slice(1));
+        return;
+    }
+
     throw new Error(`Unknown command: ${command}`);
 }
 
@@ -72,6 +78,8 @@ function printHelp() {
         '  open-rules init                 Initialize .open-rules and config',
         '  open-rules add <rule-name>      Create a new rule file in .open-rules',
         '  open-rules import [sources]     Import existing rules from copilot/cursor/claude',
+        '  open-rules fetch <owner>/<repo>[/<folder>]',
+        '                                  Fetch rules from a GitHub repository (or subfolder)',
         '  open-rules sync [--dry-run]     Generate adapter files for enabled targets',
         '  open-rules help                 Show this help',
         '',
@@ -79,6 +87,11 @@ function printHelp() {
         '  sources: copilot cursor claude all (default: all)',
         '  --force                         Overwrite existing imported files',
         '  --sync                          Run sync after import',
+        '',
+        'Fetch options:',
+        '  --ref <branch|tag>              Git ref to fetch from (default: repo default branch)',
+        '  --force                         Overwrite already-fetched files',
+        '  --sync                          Run sync after fetch',
         ''
     ].join('\n'));
 }
@@ -212,6 +225,216 @@ function importRules(rootDir, args = []) {
     if (shouldSync) {
         syncRules(rootDir, { dryRun: false });
     }
+}
+
+async function fetchFromGitHub(rootDir, args = []) {
+    // Build the set of values that are option values (not positional args)
+    const optionValues = new Set();
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--ref' && i + 1 < args.length) {
+            optionValues.add(args[i + 1]);
+        }
+    }
+
+    const repoArg = args.find((arg) => !arg.startsWith('--') && !optionValues.has(arg));
+    if (!repoArg) {
+        throw new Error('Please provide a GitHub repository. Example: open-rules fetch owner/repo or open-rules fetch owner/repo/path/to/folder');
+    }
+
+    const parsed = parseGitHubRef(repoArg);
+    if (!parsed) {
+        throw new Error(`Invalid GitHub reference: "${repoArg}". Expected format: owner/repo or owner/repo/path/to/folder`);
+    }
+
+    const { owner, repo, folder } = parsed;
+
+    const refIndex = args.indexOf('--ref');
+    const ref = refIndex !== -1 && args[refIndex + 1] ? args[refIndex + 1] : '';
+    const force = args.includes('--force');
+    const shouldSync = args.includes('--sync');
+
+    ensureInitialized(rootDir);
+    const config = loadConfig(rootDir);
+    const rulesDir = path.join(rootDir, config.rulesDir);
+    ensureDir(rulesDir);
+
+    const slug = [owner, repo].map(toSlug).join('-');
+    const destDir = folder
+        ? path.join(rulesDir, slug, folder)
+        : path.join(rulesDir, slug);
+
+    let entries;
+    try {
+        entries = await fetchGitHubDirectory(owner, repo, folder, ref);
+    } catch (error) {
+        throw new Error(`Failed to fetch from GitHub (${owner}/${repo}${folder ? '/' + folder : ''}): ${error.message}`);
+    }
+
+    const fileEntries = entries.filter((entry) => {
+        if (entry.type !== 'file') {
+            return false;
+        }
+        const ext = path.extname(entry.name).toLowerCase();
+        return (config.includeExtensions || DEFAULT_CONFIG.includeExtensions).includes(ext);
+    });
+
+    if (fileEntries.length === 0) {
+        console.log(`No rule files found in ${owner}/${repo}${folder ? '/' + folder : ''}.`);
+        return;
+    }
+
+    ensureDir(destDir);
+
+    let fetchedCount = 0;
+    let skippedCount = 0;
+
+    for (const entry of fileEntries) {
+        const destPath = path.join(destDir, entry.name);
+        const rel = relativeToRoot(rootDir, destPath);
+
+        if (fs.existsSync(destPath) && !force) {
+            console.log(`Skipped ${entry.name}: ${rel} already exists (use --force to overwrite).`);
+            skippedCount += 1;
+            continue;
+        }
+
+        let content;
+        try {
+            content = await downloadFile(entry.download_url);
+        } catch (error) {
+            console.error(`Failed to download ${entry.name}: ${error.message}`);
+            skippedCount += 1;
+            continue;
+        }
+
+        fs.writeFileSync(destPath, content, 'utf8');
+        console.log(`Fetched ${entry.name} -> ${rel}`);
+        fetchedCount += 1;
+    }
+
+    console.log(`Fetch finished: ${fetchedCount} fetched, ${skippedCount} skipped.`);
+
+    if (shouldSync) {
+        syncRules(rootDir, { dryRun: false });
+    }
+}
+
+function parseGitHubRef(input) {
+    if (typeof input !== 'string' || input.trim().length === 0) {
+        return null;
+    }
+
+    const trimmed = input.trim().replace(/^\/+|\/+$/g, '');
+    const parts = trimmed.split('/');
+
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+        return null;
+    }
+
+    const owner = parts[0];
+    const repo = parts[1];
+    const folder = parts.slice(2).join('/');
+
+    return { owner, repo, folder };
+}
+
+function fetchGitHubDirectory(owner, repo, folder, ref) {
+    const apiBase = process.env.OPEN_RULES_GITHUB_API_BASE || 'https://api.github.com';
+    const folderPath = folder ? `/${folder}` : '';
+    const apiPath = `/repos/${owner}/${repo}/contents${folderPath}`;
+    const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const url = `${apiBase}${apiPath}${query}`;
+
+    return httpsGetJson(url);
+}
+
+function downloadFile(url) {
+    return new Promise((resolve, reject) => {
+        function get(targetUrl, redirects) {
+            if (redirects > 5) {
+                reject(new Error('Too many redirects'));
+                return;
+            }
+
+            const parsed = new URL(targetUrl);
+            const transport = parsed.protocol === 'http:' ? require('http') : https;
+            const options = {
+                hostname: parsed.hostname,
+                port: parsed.port,
+                path: parsed.pathname + parsed.search,
+                headers: {
+                    'User-Agent': 'open-rules-cli',
+                    Accept: '*/*'
+                }
+            };
+
+            transport.get(options, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    get(res.headers.location, redirects + 1);
+                    return;
+                }
+
+                if (res.statusCode !== 200) {
+                    reject(new Error(`HTTP ${res.statusCode}`));
+                    return;
+                }
+
+                const chunks = [];
+                res.on('data', (chunk) => chunks.push(chunk));
+                res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            }).on('error', reject);
+        }
+
+        get(url, 0);
+    });
+}
+
+function httpsGetJson(url) {
+    return new Promise((resolve, reject) => {
+        const parsed = new URL(url);
+        const transport = parsed.protocol === 'http:' ? require('http') : https;
+        const options = {
+            hostname: parsed.hostname,
+            port: parsed.port,
+            path: parsed.pathname + parsed.search,
+            headers: {
+                'User-Agent': 'open-rules-cli',
+                Accept: 'application/vnd.github+json'
+            }
+        };
+
+        transport.get(options, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                const body = Buffer.concat(chunks).toString('utf8');
+                if (res.statusCode !== 200) {
+                    let message = `HTTP ${res.statusCode}`;
+                    try {
+                        const parsed = JSON.parse(body);
+                        if (parsed.message) {
+                            message = parsed.message;
+                        }
+                    } catch {
+                        // ignore JSON parse errors
+                    }
+
+                    reject(new Error(message));
+                    return;
+                }
+
+                let data;
+                try {
+                    data = JSON.parse(body);
+                } catch {
+                    reject(new Error('Invalid JSON response from GitHub API'));
+                    return;
+                }
+
+                resolve(data);
+            });
+        }).on('error', reject);
+    });
 }
 
 function syncRules(rootDir, options = {}) {
