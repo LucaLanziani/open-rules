@@ -28,9 +28,19 @@ This creates:
 open-rules init
 open-rules add security-basics
 open-rules import all --force --sync
+open-rules fetch owner/repo
+open-rules fetch owner/repo/path/to/folder --ref main --sync
 open-rules sync
 open-rules sync --dry-run
 ```
+
+Fetch rules from a public GitHub repository directly into `.open-rules/`:
+
+- `open-rules fetch <owner>/<repo>` — fetches all rule files from the repo root
+- `open-rules fetch <owner>/<repo>/<folder>` — fetches from a specific subfolder
+- `--ref <branch|tag>` — pick a specific git ref (default: repo default branch)
+- `--force` — overwrite already-fetched files
+- `--sync` — run `sync` immediately after fetching
 
 Import sources from existing tool files into `.open-rules`:
 

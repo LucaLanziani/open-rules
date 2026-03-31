@@ -35,6 +35,14 @@ To support a new AI assistant format, perform these steps strictly:
 3. Guards against circular imports by checking for existing generator signatures with `looksLikeGeneratedOpenRules()`.
 4. Writes sanitized results to `.open-rules/90-import-<source>.md`.
 
+## Fetch Flow (`open-rules fetch <owner>/<repo>[/<folder>]`)
+1. Parses the positional argument with `parseGitHubRef()` into `{ owner, repo, folder }`.
+2. Calls the GitHub Contents API (`/repos/{owner}/{repo}/contents/{folder}?ref={ref}`) via `fetchGitHubDirectory()`. The API base is overridable with the `OPEN_RULES_GITHUB_API_BASE` env var (useful in tests).
+3. Filters the returned entries to files whose extension matches `config.includeExtensions`.
+4. Downloads each file via `downloadFile()`, which follows up to 5 redirects.
+5. Writes files into `.open-rules/<owner-repo-slug>[/<folder>]/` — skipping existing ones unless `--force` is passed.
+6. Optionally runs `syncRules()` when `--sync` is provided.
+
 ## Testing
 Tests live in `test/` and use Node.js built-in `node:test` + `node:assert/strict`. No external test dependencies.
 Each test suite creates an isolated temp directory via `fs.mkdtempSync`, runs `open-rules init` inside it, and cleans up with `fs.rmSync` in `afterEach`. This means tests never touch the project's own `.open-rules`.

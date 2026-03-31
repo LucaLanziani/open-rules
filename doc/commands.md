@@ -17,6 +17,21 @@ The CLI tool executes actions via positional arguments parsed natively within `s
 - Filters output via `toSlug()` generating e.g. `.open-rules/security-basics.md`.
 - File content gets scaffolded with an auto-generated title.
 
+### `open-rules fetch <owner>/<repo>[/<folder>] [--ref <ref>] [--force] [--sync]`
+**Description**: Downloads rule files directly from a GitHub repository into `.open-rules/`.
+**Arguments**:
+- `<owner>/<repo>`: GitHub repository in `owner/repo` format.
+- `[/<folder>]`: Optional subfolder path within the repository (e.g., `owner/repo/rules/backend`).
+- `--ref <branch|tag>`: Git ref to fetch from. Defaults to the repository's default branch.
+- `--force`: Overwrite files that already exist locally.
+- `--sync`: Run `sync` immediately after fetching.
+**Operation**:
+- Calls the GitHub Contents API to list files in the target path.
+- Filters files by `config.includeExtensions` (`.md`, `.txt`, `.mdc` by default).
+- Downloads each file and writes it to `.open-rules/<owner-repo>/<folder>/`.
+- Skips already-existing files unless `--force` is given.
+- The GitHub API base URL can be overridden with the `OPEN_RULES_GITHUB_API_BASE` environment variable.
+
 ### `open-rules sync [--dry-run]`
 **Description**: Triggers the generation process that outputs target artifacts.
 **Arguments**:
